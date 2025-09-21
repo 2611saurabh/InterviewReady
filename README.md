@@ -44,4 +44,4 @@ This repo includes **DSA, System Design, Backend, Frontend (Angular + React), an
 ## 📌 Usage
 - Clone the repo:  
   ```bash
-  git clone https://github.com/your-username/InterviewReady.git
+  git clone https://github.com/2611saurabh/InterviewReady.git
