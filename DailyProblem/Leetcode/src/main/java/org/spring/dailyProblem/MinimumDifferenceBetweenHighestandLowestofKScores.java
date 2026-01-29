@@ -64,7 +64,6 @@ public class MinimumDifferenceBetweenHighestandLowestofKScores {
         System.gc();
     }
 }
-
 /*
 -----------------------------------------
 ⏱ Time Complexity:
