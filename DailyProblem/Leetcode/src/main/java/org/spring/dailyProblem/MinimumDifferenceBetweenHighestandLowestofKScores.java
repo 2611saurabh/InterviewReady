@@ -62,6 +62,7 @@ public class MinimumDifferenceBetweenHighestandLowestofKScores {
         // Output result
         System.out.println(value);
         System.gc();
+        System.out.println("hi");
     }
 }
 /*
