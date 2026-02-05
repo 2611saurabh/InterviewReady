@@ -13,7 +13,6 @@ public class PickToys {
         while (j < s.length()){
             // Add current character to map
             map.put(s.charAt(j), map.getOrDefault(s.charAt(j), 0) + 1);
-
             // Case 1: fewer than k distinct chars → expand window
             if(map.size() < k){
                 j++;
