@@ -3,6 +3,7 @@ package Stack;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Stack;
+import java.util.HashMap;
 
 public class NearestSmallerToRight {
 
