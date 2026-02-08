@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.Stack;
 
 // Helper class to store both value and index in the stack
+/*
 class Pair {
     public int value;  // stock price
     public int index;  // day index
@@ -13,6 +14,8 @@ class Pair {
         this.index = index;
     }
 }
+*/
+
 
 public class StockSpan {
 
