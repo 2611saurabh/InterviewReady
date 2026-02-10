@@ -61,7 +61,7 @@ public class TrapingRainWater {
             while(st.size() > 0 && st.peek() < height[i]){
                 st.pop();
             }
-
+22
             if(st.size() == 0){
                 max = Math.max(max, height[i]);
                 maxR[i] = max;
