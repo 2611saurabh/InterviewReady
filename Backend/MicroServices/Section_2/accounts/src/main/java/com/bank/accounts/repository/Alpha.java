@@ -1,0 +1,8 @@
+package com.bank.accounts.repository;
+
+public class Alpha {
+
+    public static void main(String[] args) {
+        System.out.println("hi");
+    }
+}
