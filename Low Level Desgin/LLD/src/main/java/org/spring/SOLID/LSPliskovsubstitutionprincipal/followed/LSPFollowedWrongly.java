@@ -1,6 +1,6 @@
 package org.spring.SOLID.LSPliskovsubstitutionprincipal.followed;
 
-
+/**
 import java.util.ArrayList;
 import java.util.List;
 
@@ -113,3 +113,5 @@ public class LSPFollowedWrongly {
         client.processTransactions();
     }
 }
+
+ */
