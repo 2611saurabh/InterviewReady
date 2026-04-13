@@ -1,0 +1,342 @@
+-- ============================================================
+--  EXTENSIONS
+-- ============================================================
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "postgis";          -- optional: for geo queries
+
+
+-- ============================================================
+--  ENUMS
+-- ============================================================
+CREATE TYPE user_role       AS ENUM ('GUEST', 'HOST', 'ADMIN');
+CREATE TYPE booking_status  AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED');
+
+
+-- ============================================================
+--  USERS
+-- ============================================================
+CREATE TABLE users (
+    id              UUID            PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name            VARCHAR(100)    NOT NULL,
+    email           VARCHAR(255)    NOT NULL UNIQUE,
+    password_hash   VARCHAR(255),                          -- NULL for Google-only accounts
+    google_id       VARCHAR(100)    UNIQUE,
+    avatar_url      TEXT,
+    role            user_role       NOT NULL DEFAULT 'GUEST',
+    is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_users_auth CHECK (
+        password_hash IS NOT NULL OR google_id IS NOT NULL  -- must have at least one auth method
+    )
+);
+
+CREATE INDEX idx_users_email    ON users (email);
+CREATE INDEX idx_users_role     ON users (role);
+CREATE INDEX idx_users_google   ON users (google_id) WHERE google_id IS NOT NULL;
+
+
+-- ============================================================
+--  LISTINGS
+-- ============================================================
+CREATE TABLE listings (
+    id              UUID            PRIMARY KEY DEFAULT uuid_generate_v4(),
+    host_id         UUID            NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    title           VARCHAR(255)    NOT NULL,
+    description     TEXT            NOT NULL,
+    address         VARCHAR(500)    NOT NULL,
+    city            VARCHAR(100)    NOT NULL,
+    state           VARCHAR(100),
+    country         VARCHAR(100)    NOT NULL DEFAULT 'India',
+    latitude        NUMERIC(10, 7)  NOT NULL,
+    longitude       NUMERIC(10, 7)  NOT NULL,
+    price_per_night NUMERIC(10, 2)  NOT NULL CHECK (price_per_night > 0),
+    cleaning_fee    NUMERIC(10, 2)  NOT NULL DEFAULT 0 CHECK (cleaning_fee >= 0),
+    max_guests      SMALLINT        NOT NULL CHECK (max_guests > 0),
+    bedrooms        SMALLINT        NOT NULL DEFAULT 1 CHECK (bedrooms >= 0),
+    beds            SMALLINT        NOT NULL DEFAULT 1 CHECK (beds >= 0),
+    bathrooms       NUMERIC(3, 1)   NOT NULL DEFAULT 1 CHECK (bathrooms >= 0),
+    property_type   VARCHAR(50)     NOT NULL DEFAULT 'Apartment',
+    is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_listings_host      ON listings (host_id);
+CREATE INDEX idx_listings_city      ON listings (city);
+CREATE INDEX idx_listings_active    ON listings (is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_listings_price     ON listings (price_per_night);
+-- Geo bounding-box search (no PostGIS required)
+CREATE INDEX idx_listings_geo       ON listings (latitude, longitude);
+
+
+-- ============================================================
+--  LISTING IMAGES
+-- ============================================================
+CREATE TABLE listing_images (
+    id              UUID            PRIMARY KEY DEFAULT uuid_generate_v4(),
+    listing_id      UUID            NOT NULL REFERENCES listings (id) ON DELETE CASCADE,
+    image_url       TEXT            NOT NULL,
+    cloudinary_id   VARCHAR(255),                          -- for deletion via Cloudinary API
+    is_primary      BOOLEAN         NOT NULL DEFAULT FALSE,
+    display_order   SMALLINT        NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_images_listing     ON listing_images (listing_id);
+-- Only one primary image per listing
+CREATE UNIQUE INDEX idx_images_primary ON listing_images (listing_id)
+    WHERE is_primary = TRUE;
+
+
+-- ============================================================
+--  AMENITIES  (lookup table)
+-- ============================================================
+CREATE TABLE amenities (
+    id      UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name    VARCHAR(100) NOT NULL UNIQUE,
+    icon    VARCHAR(100)                                   -- icon key e.g. 'wifi', 'pool'
+);
+
+INSERT INTO amenities (name, icon) VALUES
+    ('WiFi',              'wifi'),
+    ('Air conditioning',  'ac'),
+    ('Kitchen',           'kitchen'),
+    ('Free parking',      'parking'),
+    ('Swimming pool',     'pool'),
+    ('Washer',            'washer'),
+    ('Dryer',             'dryer'),
+    ('TV',                'tv'),
+    ('Gym',               'gym'),
+    ('Hot tub',           'hot_tub'),
+    ('Fireplace',         'fireplace'),
+    ('Breakfast included','breakfast'),
+    ('Pet friendly',      'pets'),
+    ('Beachfront',        'beach'),
+    ('Mountain view',     'mountain');
+
+
+-- ============================================================
+--  LISTING ↔ AMENITIES  (many-to-many)
+-- ============================================================
+CREATE TABLE listing_amenities (
+    listing_id  UUID    NOT NULL REFERENCES listings  (id) ON DELETE CASCADE,
+    amenity_id  UUID    NOT NULL REFERENCES amenities (id) ON DELETE CASCADE,
+    PRIMARY KEY (listing_id, amenity_id)
+);
+
+CREATE INDEX idx_la_amenity ON listing_amenities (amenity_id);
+
+
+-- ============================================================
+--  BOOKINGS
+-- ============================================================
+CREATE TABLE bookings (
+    id              UUID            PRIMARY KEY DEFAULT uuid_generate_v4(),
+    guest_id        UUID            NOT NULL REFERENCES users    (id) ON DELETE RESTRICT,
+    listing_id      UUID            NOT NULL REFERENCES listings (id) ON DELETE RESTRICT,
+    check_in        DATE            NOT NULL,
+    check_out       DATE            NOT NULL,
+    guest_count     SMALLINT        NOT NULL CHECK (guest_count > 0),
+    nights          SMALLINT        GENERATED ALWAYS AS (check_out - check_in) STORED,
+    price_per_night NUMERIC(10, 2)  NOT NULL,              -- snapshot at booking time
+    cleaning_fee    NUMERIC(10, 2)  NOT NULL DEFAULT 0,
+    total_price     NUMERIC(10, 2)  NOT NULL,
+    status          booking_status  NOT NULL DEFAULT 'PENDING',
+    special_requests TEXT,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_dates        CHECK (check_out > check_in),
+    CONSTRAINT chk_total        CHECK (total_price > 0),
+    -- A guest cannot book their own listing
+    CONSTRAINT chk_no_self_book CHECK (guest_id <> (
+        SELECT host_id FROM listings WHERE id = listing_id
+    ))
+);
+
+CREATE INDEX idx_bookings_guest     ON bookings (guest_id);
+CREATE INDEX idx_bookings_listing   ON bookings (listing_id);
+CREATE INDEX idx_bookings_dates     ON bookings (listing_id, check_in, check_out);
+CREATE INDEX idx_bookings_status    ON bookings (status);
+
+-- ── Prevent double-booking: no two CONFIRMED/PENDING bookings overlap
+--    for the same listing
+CREATE UNIQUE INDEX idx_bookings_no_overlap
+    ON bookings (listing_id, check_in, check_out)
+    WHERE status IN ('PENDING', 'CONFIRMED');
+
+-- For a proper range-exclusion constraint (requires btree_gist extension):
+-- CREATE EXTENSION IF NOT EXISTS btree_gist;
+-- ALTER TABLE bookings ADD CONSTRAINT no_overlap
+--     EXCLUDE USING gist (
+--         listing_id WITH =,
+--         daterange(check_in, check_out, '[)') WITH &&
+--     ) WHERE (status IN ('PENDING','CONFIRMED'));
+
+
+-- ============================================================
+--  REVIEWS
+-- ============================================================
+CREATE TABLE reviews (
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    booking_id      UUID        NOT NULL UNIQUE REFERENCES bookings (id) ON DELETE CASCADE,
+    reviewer_id     UUID        NOT NULL REFERENCES users    (id) ON DELETE CASCADE,
+    listing_id      UUID        NOT NULL REFERENCES listings (id) ON DELETE CASCADE,
+    rating          SMALLINT    NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comment         TEXT,
+    cleanliness     SMALLINT    CHECK (cleanliness BETWEEN 1 AND 5),
+    accuracy        SMALLINT    CHECK (accuracy    BETWEEN 1 AND 5),
+    communication   SMALLINT    CHECK (communication BETWEEN 1 AND 5),
+    location        SMALLINT    CHECK (location    BETWEEN 1 AND 5),
+    value           SMALLINT    CHECK (value       BETWEEN 1 AND 5),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Only one review per completed booking
+    CONSTRAINT chk_review_completed CHECK (
+        (SELECT status FROM bookings WHERE id = booking_id) = 'COMPLETED'
+    )
+);
+
+CREATE INDEX idx_reviews_listing    ON reviews (listing_id);
+CREATE INDEX idx_reviews_reviewer   ON reviews (reviewer_id);
+
+
+-- ============================================================
+--  REFRESH TOKENS
+-- ============================================================
+CREATE TABLE refresh_tokens (
+    id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id     UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token       TEXT        NOT NULL UNIQUE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    revoked     BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_rt_user    ON refresh_tokens (user_id);
+CREATE INDEX idx_rt_token   ON refresh_tokens (token);
+-- Partial index: only index active (non-revoked, non-expired) tokens
+CREATE INDEX idx_rt_active  ON refresh_tokens (user_id, expires_at)
+    WHERE revoked = FALSE;
+
+
+-- ============================================================
+--  UPDATED_AT TRIGGER  (auto-update on every table that has it)
+-- ============================================================
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_listings_updated_at
+    BEFORE UPDATE ON listings
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_bookings_updated_at
+    BEFORE UPDATE ON bookings
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_reviews_updated_at
+    BEFORE UPDATE ON reviews
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+
+-- ============================================================
+--  MATERIALIZED VIEW: listing average ratings
+--  Refresh with: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_listing_ratings;
+-- ============================================================
+CREATE MATERIALIZED VIEW mv_listing_ratings AS
+SELECT
+    listing_id,
+    COUNT(*)                        AS review_count,
+    ROUND(AVG(rating),        2)    AS avg_rating,
+    ROUND(AVG(cleanliness),   2)    AS avg_cleanliness,
+    ROUND(AVG(accuracy),      2)    AS avg_accuracy,
+    ROUND(AVG(communication), 2)    AS avg_communication,
+    ROUND(AVG(location),      2)    AS avg_location,
+    ROUND(AVG(value),         2)    AS avg_value
+FROM reviews
+GROUP BY listing_id;
+
+CREATE UNIQUE INDEX idx_mv_listing_ratings ON mv_listing_ratings (listing_id);
+
+
+-- ============================================================
+--  HELPFUL VIEWS
+-- ============================================================
+
+-- Full listing detail with host name + rating summary
+CREATE VIEW v_listings_detail AS
+SELECT
+    l.*,
+    u.name          AS host_name,
+    u.avatar_url    AS host_avatar,
+    COALESCE(r.avg_rating,    0) AS avg_rating,
+    COALESCE(r.review_count,  0) AS review_count,
+    (SELECT image_url FROM listing_images
+     WHERE listing_id = l.id AND is_primary = TRUE
+     LIMIT 1)       AS primary_image
+FROM listings l
+JOIN users    u ON u.id = l.host_id
+LEFT JOIN mv_listing_ratings r ON r.listing_id = l.id;
+
+
+-- Booking detail with guest + listing info
+CREATE VIEW v_bookings_detail AS
+SELECT
+    b.*,
+    u.name          AS guest_name,
+    u.email         AS guest_email,
+    l.title         AS listing_title,
+    l.city          AS listing_city,
+    l.country       AS listing_country
+FROM bookings b
+JOIN users    u ON u.id = b.guest_id
+JOIN listings l ON l.id = b.listing_id;
+
+
+-- ============================================================
+--  USEFUL QUERIES (reference)
+-- ============================================================
+
+-- 1. Search available listings (city + date range + guest count)
+-- SELECT * FROM v_listings_detail
+-- WHERE city    ILIKE '%Mumbai%'
+--   AND is_active = TRUE
+--   AND max_guests >= 2
+--   AND id NOT IN (
+--       SELECT listing_id FROM bookings
+--       WHERE status IN ('PENDING','CONFIRMED')
+--         AND check_in  < '2025-06-10'
+--         AND check_out > '2025-06-05'
+--   )
+-- ORDER BY avg_rating DESC, price_per_night;
+
+-- 2. Upcoming bookings for a host's listings
+-- SELECT vb.* FROM v_bookings_detail vb
+-- JOIN listings l ON l.id = vb.listing_id
+-- WHERE l.host_id = '<host-uuid>'
+--   AND vb.check_in >= CURRENT_DATE
+--   AND vb.status = 'CONFIRMED'
+-- ORDER BY vb.check_in;
+
+-- 3. Revenue per listing this month (host dashboard)
+-- SELECT listing_id, SUM(total_price) AS revenue, COUNT(*) AS bookings
+-- FROM bookings
+-- WHERE status = 'COMPLETED'
+--   AND date_trunc('month', check_in) = date_trunc('month', CURRENT_DATE)
+-- GROUP BY listing_id;
+
+-- 4. Purge expired / revoked refresh tokens (run as a cron job)
+-- DELETE FROM refresh_tokens
+-- WHERE revoked = TRUE OR expires_at < NOW();
