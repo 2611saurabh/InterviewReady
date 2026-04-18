@@ -1,18 +1,49 @@
 package com.bank.accounts.controller;
 
 
+import com.bank.accounts.constants.AccountsConstant;
+import com.bank.accounts.dto.CustomerDetailsDTO;
+import com.bank.accounts.dto.ResponseDTO;
+import com.bank.accounts.service.IAccountsService;
+import lombok.AllArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
+@RequestMapping(path = "/api", produces = {MediaType.APPLICATION_JSON_VALUE})
 public class AccountsController {
 
-    @GetMapping("sayHello")
-    public String hello(){
-        return "Hello E veryOne";
+    private IAccountsService iAccountsService;
+
+    public AccountsController(IAccountsService iAccountsService) {
+        this.iAccountsService = iAccountsService;
     }
-    /*
-    hi saurabh
-     */
+
+    @PostMapping("/create")
+    public ResponseEntity<ResponseDTO> createAccount(@RequestBody CustomerDetailsDTO customerDto){
+        iAccountsService.creatAccount(customerDto);
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(
+                        new ResponseDTO(
+                                AccountsConstant.STATUS_CODE,
+                                AccountsConstant.MESSAGE_201)
+                );
+    }
+
+    @GetMapping("/fetch")
+    public ResponseEntity<CustomerDetailsDTO> fetchAccountDetail(@RequestParam String mobileNumber){
+        CustomerDetailsDTO customerDTO = iAccountsService.fetchAccount(mobileNumber);
+
+        return ResponseEntity.status(HttpStatus.OK).body(customerDTO);
+    }
+
+
+
+
 }
