@@ -12,4 +12,8 @@ public interface IAccountsService {
     void creatAccount(CustomerDetailsDTO customerDto);
 
     CustomerDetailsDTO fetchAccount(String mobileNumber);
+
+    public boolean updateAccount(CustomerDetailsDTO customerDTO);
+
+    boolean deleteAccount(String mobileNumber);
 }

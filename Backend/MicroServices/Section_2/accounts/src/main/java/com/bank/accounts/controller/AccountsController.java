@@ -5,6 +5,8 @@ import com.bank.accounts.constants.AccountsConstant;
 import com.bank.accounts.dto.CustomerDetailsDTO;
 import com.bank.accounts.dto.ResponseDTO;
 import com.bank.accounts.service.IAccountsService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -44,6 +46,35 @@ public class AccountsController {
     }
 
 
+    @PutMapping("/update")
+    public ResponseEntity<ResponseDTO> updateAccountDetails(@Valid @RequestBody CustomerDetailsDTO customerDto) {
+        boolean isUpdated = iAccountsService.updateAccount(customerDto);
+        if(isUpdated) {
+            return ResponseEntity
+                    .status(HttpStatus.OK)
+                    .body(new ResponseDTO(AccountsConstant.STATUS_200, AccountsConstant.MESSAGE_200));
+        }else{
+            return ResponseEntity
+                    .status(HttpStatus.EXPECTATION_FAILED)
+                    .body(new ResponseDTO(AccountsConstant.STATUS_417, AccountsConstant.MESSAGE_417_UPDATE));
+        }
+    }
+
+    @DeleteMapping("/delete")
+    public ResponseEntity<ResponseDTO> deleteAccountDetails(@RequestParam
+                                                            @Pattern(regexp="(^$|[0-9]{10})",message = "Mobile number must be 10 digits")
+                                                            String mobileNumber) {
+        boolean isDeleted = iAccountsService.deleteAccount(mobileNumber);
+        if(isDeleted) {
+            return ResponseEntity
+                    .status(HttpStatus.OK)
+                    .body(new ResponseDTO(AccountsConstant.STATUS_200, AccountsConstant.MESSAGE_200));
+        }else{
+            return ResponseEntity
+                    .status(HttpStatus.EXPECTATION_FAILED)
+                    .body(new ResponseDTO(AccountsConstant.STATUS_417, AccountsConstant.MESSAGE_417_DELETE));
+        }
+    }
 
 
 }

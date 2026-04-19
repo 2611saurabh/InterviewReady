@@ -14,6 +14,19 @@ import java.time.LocalDateTime;
 @ControllerAdvice
 public class GlobalExceptionHandler {
 
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponseDTO> handleGlobalException(Exception exception,
+                                                                  WebRequest webRequest) {
+        ErrorResponseDTO errorResponseDTO = new ErrorResponseDTO(
+                LocalDateTime.now(),
+                exception.getMessage(),
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                webRequest.getDescription(false)
+        );
+        return new ResponseEntity<>(errorResponseDTO, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponseDTO> handleResourceNotFound(ResourceNotFoundException exception, WebRequest webRequest){
 
